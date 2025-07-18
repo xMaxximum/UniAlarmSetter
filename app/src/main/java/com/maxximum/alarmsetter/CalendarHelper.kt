@@ -115,28 +115,33 @@ class CalendarHelper(private val context: Context) {
             val now = System.currentTimeMillis()
             val oneWeekFromNow = now + (7 * 24 * 60 * 60 * 1000L) // 1 week
             
+            Log.d("CalendarHelper", "Querying events for calendar $calendarId from $now to $oneWeekFromNow")
+            
+            // Use Instances URI to get expanded recurring events
             val projection = arrayOf(
-                CalendarContract.Events._ID,
-                CalendarContract.Events.TITLE,
-                CalendarContract.Events.DESCRIPTION,
-                CalendarContract.Events.DTSTART,
-                CalendarContract.Events.DTEND,
-                CalendarContract.Events.ALL_DAY,
-                CalendarContract.Events.EVENT_LOCATION
+                CalendarContract.Instances.EVENT_ID,
+                CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.DESCRIPTION,
+                CalendarContract.Instances.BEGIN,
+                CalendarContract.Instances.END,
+                CalendarContract.Instances.ALL_DAY,
+                CalendarContract.Instances.EVENT_LOCATION
             )
             
-            val selection = "(${CalendarContract.Events.CALENDAR_ID} = ?) AND " +
-                    "(${CalendarContract.Events.DTSTART} >= ?) AND " +
-                    "(${CalendarContract.Events.DTSTART} <= ?)"
-            val selectionArgs = arrayOf(
-                calendarId.toString(),
-                now.toString(),
-                oneWeekFromNow.toString()
-            )
-            val sortOrder = "${CalendarContract.Events.DTSTART} ASC"
+            val selection = "(${CalendarContract.Instances.CALENDAR_ID} = ?)"
+            val selectionArgs = arrayOf(calendarId.toString())
+            val sortOrder = "${CalendarContract.Instances.BEGIN} ASC"
+            
+            // Build URI with time range for instances
+            val instancesUri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                .appendPath(now.toString())
+                .appendPath(oneWeekFromNow.toString())
+                .build()
+            
+            Log.d("CalendarHelper", "Using instances URI: $instancesUri")
             
             val cursor: Cursor? = context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
+                instancesUri,
                 projection,
                 selection,
                 selectionArgs,
@@ -144,13 +149,13 @@ class CalendarHelper(private val context: Context) {
             )
             
             cursor?.use {
-                val idColumn = it.getColumnIndex(CalendarContract.Events._ID)
-                val titleColumn = it.getColumnIndex(CalendarContract.Events.TITLE)
-                val descriptionColumn = it.getColumnIndex(CalendarContract.Events.DESCRIPTION)
-                val startColumn = it.getColumnIndex(CalendarContract.Events.DTSTART)
-                val endColumn = it.getColumnIndex(CalendarContract.Events.DTEND)
-                val allDayColumn = it.getColumnIndex(CalendarContract.Events.ALL_DAY)
-                val locationColumn = it.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+                val idColumn = it.getColumnIndex(CalendarContract.Instances.EVENT_ID)
+                val titleColumn = it.getColumnIndex(CalendarContract.Instances.TITLE)
+                val descriptionColumn = it.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
+                val startColumn = it.getColumnIndex(CalendarContract.Instances.BEGIN)
+                val endColumn = it.getColumnIndex(CalendarContract.Instances.END)
+                val allDayColumn = it.getColumnIndex(CalendarContract.Instances.ALL_DAY)
+                val locationColumn = it.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
                 
                 var count = 0
                 while (it.moveToNext() && count < maxEvents) {
@@ -171,6 +176,7 @@ class CalendarHelper(private val context: Context) {
                         ZoneId.systemDefault()
                     )
                     
+                    Log.d("CalendarHelper", "Found event: $title at $startTime (recurring event support enabled)")
                     events.add(CalendarEvent(id, title, description, startTime, endTime, allDay, location))
                     count++
                 }
@@ -189,29 +195,34 @@ class CalendarHelper(private val context: Context) {
             val now = System.currentTimeMillis()
             val sevenDaysFromNow = now + (7L * 24 * 60 * 60 * 1000L) // 7 days
             
+            Log.d("CalendarHelper", "Querying next absolute event for calendar $calendarId from $now to $sevenDaysFromNow")
+            
+            // Use Instances URI to get expanded recurring events
             val projection = arrayOf(
-                CalendarContract.Events._ID,
-                CalendarContract.Events.TITLE,
-                CalendarContract.Events.DESCRIPTION,
-                CalendarContract.Events.DTSTART,
-                CalendarContract.Events.DTEND,
-                CalendarContract.Events.ALL_DAY,
-                CalendarContract.Events.EVENT_LOCATION
+                CalendarContract.Instances.EVENT_ID,
+                CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.DESCRIPTION,
+                CalendarContract.Instances.BEGIN,
+                CalendarContract.Instances.END,
+                CalendarContract.Instances.ALL_DAY,
+                CalendarContract.Instances.EVENT_LOCATION
             )
             
-            val selection = "(${CalendarContract.Events.CALENDAR_ID} = ?) AND " +
-                    "(${CalendarContract.Events.DTSTART} >= ?) AND " +
-                    "(${CalendarContract.Events.DTSTART} <= ?) AND " +
-                    "(${CalendarContract.Events.ALL_DAY} = 0)"
-            val selectionArgs = arrayOf(
-                calendarId.toString(),
-                now.toString(),
-                sevenDaysFromNow.toString()
-            )
-            val sortOrder = "${CalendarContract.Events.DTSTART} ASC"
+            val selection = "(${CalendarContract.Instances.CALENDAR_ID} = ?) AND " +
+                    "(${CalendarContract.Instances.ALL_DAY} = 0)"
+            val selectionArgs = arrayOf(calendarId.toString())
+            val sortOrder = "${CalendarContract.Instances.BEGIN} ASC"
+            
+            // Build URI with time range for instances
+            val instancesUri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                .appendPath(now.toString())
+                .appendPath(sevenDaysFromNow.toString())
+                .build()
+            
+            Log.d("CalendarHelper", "Using instances URI for next event: $instancesUri")
             
             val cursor: Cursor? = context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
+                instancesUri,
                 projection,
                 selection,
                 selectionArgs,
@@ -220,13 +231,13 @@ class CalendarHelper(private val context: Context) {
             
             cursor?.use {
                 if (it.moveToFirst()) {
-                    val idColumn = it.getColumnIndex(CalendarContract.Events._ID)
-                    val titleColumn = it.getColumnIndex(CalendarContract.Events.TITLE)
-                    val descriptionColumn = it.getColumnIndex(CalendarContract.Events.DESCRIPTION)
-                    val startColumn = it.getColumnIndex(CalendarContract.Events.DTSTART)
-                    val endColumn = it.getColumnIndex(CalendarContract.Events.DTEND)
-                    val allDayColumn = it.getColumnIndex(CalendarContract.Events.ALL_DAY)
-                    val locationColumn = it.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+                    val idColumn = it.getColumnIndex(CalendarContract.Instances.EVENT_ID)
+                    val titleColumn = it.getColumnIndex(CalendarContract.Instances.TITLE)
+                    val descriptionColumn = it.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
+                    val startColumn = it.getColumnIndex(CalendarContract.Instances.BEGIN)
+                    val endColumn = it.getColumnIndex(CalendarContract.Instances.END)
+                    val allDayColumn = it.getColumnIndex(CalendarContract.Instances.ALL_DAY)
+                    val locationColumn = it.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
                     
                     val id = it.getLong(idColumn)
                     val title = it.getString(titleColumn) ?: "No Title"
@@ -245,6 +256,7 @@ class CalendarHelper(private val context: Context) {
                         ZoneId.systemDefault()
                     )
                     
+                    Log.d("CalendarHelper", "Found next event: $title at $startTime (recurring events supported)")
                     return CalendarEvent(id, title, description, startTime, endTime, allDay, location)
                 }
             }
@@ -254,6 +266,7 @@ class CalendarHelper(private val context: Context) {
             Log.e("CalendarHelper", "Error retrieving absolute next event", e)
         }
         
+        Log.d("CalendarHelper", "No next event found")
         return null
     }
 }
