@@ -6,21 +6,34 @@ on:
       - '*'
 
 jobs:
-  Gradle:
+  build:
     runs-on: ubuntu-latest
     steps:
-    - name: checkout code
-      uses: actions/checkout@v2
-    - name: setup jdk
-      uses: actions/setup-java@v1
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup JDK
+      uses: actions/setup-java@v4
       with:
-        java-version: 11
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
     - name: Make Gradle executable
       run: chmod +x ./gradlew
+      
     - name: Build Release APK
       run: ./gradlew assembleRelease
-    - name: Releasing using Hub
-      uses: sangatdesai/release-apk@main
+      
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/apk/release/app-release.apk
+        generate_release_notes: true
+        draft: false
+        prerelease: false
       env:
-       GITHUB_TOKEN: ${{ secrets.TOKEN }}
-       APP_FOLDER: app
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
