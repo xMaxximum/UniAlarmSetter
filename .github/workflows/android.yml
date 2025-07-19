@@ -69,12 +69,5 @@ jobs:
         prerelease: false
         fail_on_unmatched_files: true
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
       continue-on-error: true
-        
-    - name: Upload APK as Artifact (fallback)
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-apk-${{ github.ref_name }}
-        path: app/build/outputs/apk/release/*.apk
