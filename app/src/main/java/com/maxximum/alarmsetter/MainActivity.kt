@@ -219,6 +219,8 @@ fun AlarmSetterScreen(
     var dailyRunTime by remember { mutableStateOf(settingsHelper.getDailyRunTime()) }
     var isDailyWorkerEnabled by remember { mutableStateOf(settingsHelper.isDailyWorkerEnabled()) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showAlarmLimitationDialog by remember { mutableStateOf(false) }
+    var alarmLimitationMessage by remember { mutableStateOf("") }
     var timePickerState by remember { 
         mutableStateOf(TimePickerState(
             initialHour = dailyRunTime.hour,
@@ -450,12 +452,31 @@ fun AlarmSetterScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = event.title,
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 14.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = event.title,
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                
+                                                // Show indicator if event can have alarm set
+                                                if (calendarHelper.isEventWithinAlarmApiLimitation(event)) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "🔔",
+                                                        fontSize = 12.sp
+                                                    )
+                                                } else {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "🚫",
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
+                                            }
                                             Text(
                                                 text = if (event.allDay) "All Day" else 
                                                     event.startTime.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm")),
@@ -479,6 +500,15 @@ fun AlarmSetterScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
+                                
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "🔔 = Can set alarm | 🚫 = Beyond next day",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     } else {
@@ -638,6 +668,41 @@ fun AlarmSetterScreen(
                     )
                 }
                 
+                // Alarm Limitation Dialog
+                if (showAlarmLimitationDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAlarmLimitationDialog = false },
+                        title = {
+                            Text(
+                                "Cannot Set Alarm",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color(0xFFFF5722)
+                            )
+                        },
+                        text = {
+                            Column {
+                                Text(
+                                    text = alarmLimitationMessage,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Android's alarm system can only set alarms for today (if the time hasn't passed) or tomorrow. This is a system limitation, not an app limitation.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { showAlarmLimitationDialog = false }
+                            ) {
+                                Text("OK")
+                            }
+                        }
+                    )
+                }
+                
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Daily worker enabled toggle
@@ -691,6 +756,14 @@ fun AlarmSetterScreen(
                         onClick = {
                             val nextEvent = calendarHelper.getAbsoluteNextEvent(calendar.id)
                             if (nextEvent != null) {
+                                // Check if the event is within Android AlarmClock API limitations
+                                if (!calendarHelper.isEventWithinAlarmApiLimitation(nextEvent)) {
+                                    // Show limitation dialog
+                                    alarmLimitationMessage = calendarHelper.getAlarmLimitationReason(nextEvent)
+                                    showAlarmLimitationDialog = true
+                                    return@Button
+                                }
+                                
                                 // Calculate alarm time (event time minus wake up minutes)
                                 val alarmDateTime = nextEvent.startTime.minusMinutes(wakeUpMinutesBefore.toLong())
                                 

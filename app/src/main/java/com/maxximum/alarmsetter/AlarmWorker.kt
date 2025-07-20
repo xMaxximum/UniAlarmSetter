@@ -62,11 +62,24 @@ class AlarmWorker(
                 return Result.failure()
             }
             
-            // Get next event for tomorrow (using getAbsoluteNextEvent)
+            // Get next event (using getAbsoluteNextEvent)
             val nextEvent = calendarHelper.getAbsoluteNextEvent(selectedCalendarId)
             if (nextEvent == null) {
                 Log.d("AlarmWorker", "No upcoming events found")
                 sendNotification("No Events", "No upcoming events found")
+                return Result.success()
+            }
+            
+            // Check if the event is within Android AlarmClock API limitations
+            // Android can only set alarms for today (if time hasn't passed) or tomorrow
+            // This ensures the background worker follows the same limitations as manual setting
+            if (!calendarHelper.isEventWithinAlarmApiLimitation(nextEvent)) {
+                val reason = calendarHelper.getAlarmLimitationReason(nextEvent)
+                Log.d("AlarmWorker", "Event is outside alarm API limitation: $reason")
+                sendNotification(
+                    "Cannot Set Alarm", 
+                    "Next event cannot be set as alarm: $reason\n\nAndroid only allows setting alarms for today or tomorrow."
+                )
                 return Result.success()
             }
             

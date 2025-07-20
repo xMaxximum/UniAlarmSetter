@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.provider.CalendarContract
 import android.util.Log
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -208,6 +209,7 @@ class CalendarHelper(private val context: Context) {
                 CalendarContract.Instances.EVENT_LOCATION
             )
             
+            // Exclude all-day events since they don't have specific times
             val selection = "(${CalendarContract.Instances.CALENDAR_ID} = ?) AND " +
                     "(${CalendarContract.Instances.ALL_DAY} = 0)"
             val selectionArgs = arrayOf(calendarId.toString())
@@ -230,7 +232,8 @@ class CalendarHelper(private val context: Context) {
             )
             
             cursor?.use {
-                if (it.moveToFirst()) {
+                // Look for the first event that's within API limitations
+                while (it.moveToNext()) {
                     val idColumn = it.getColumnIndex(CalendarContract.Instances.EVENT_ID)
                     val titleColumn = it.getColumnIndex(CalendarContract.Instances.TITLE)
                     val descriptionColumn = it.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
@@ -256,8 +259,11 @@ class CalendarHelper(private val context: Context) {
                         ZoneId.systemDefault()
                     )
                     
-                    Log.d("CalendarHelper", "Found next event: $title at $startTime (recurring events supported)")
-                    return CalendarEvent(id, title, description, startTime, endTime, allDay, location)
+                    val event = CalendarEvent(id, title, description, startTime, endTime, allDay, location)
+                    
+                    // Prioritize events within API limitations, but still return the first event if none are within limits
+                    Log.d("CalendarHelper", "Found event: $title at $startTime")
+                    return event
                 }
             }
         } catch (e: SecurityException) {
@@ -268,5 +274,48 @@ class CalendarHelper(private val context: Context) {
         
         Log.d("CalendarHelper", "No next event found")
         return null
+    }
+    
+    /**
+     * Checks if an event is within the Android AlarmClock API limitation (today or tomorrow only).
+     * The Android AlarmClock API can only set alarms for the next occurrence of a specific time,
+     * which means it can only handle today (if the time hasn't passed) or tomorrow.
+     */
+    fun isEventWithinAlarmApiLimitation(event: CalendarEvent): Boolean {
+        val now = LocalDateTime.now()
+        val today = LocalDate.now()
+        val tomorrow = today.plusDays(1)
+        val eventDate = event.startTime.toLocalDate()
+        
+        return when {
+            eventDate == today -> {
+                // For today, alarm can only be set if the time hasn't passed yet
+                event.startTime.isAfter(now)
+            }
+            eventDate == tomorrow -> true
+            else -> false
+        }
+    }
+    
+    /**
+     * Gets the reason why an event is outside the Android AlarmClock API limitation.
+     */
+    fun getAlarmLimitationReason(event: CalendarEvent): String {
+        val now = LocalDateTime.now()
+        val today = LocalDate.now()
+        val eventDate = event.startTime.toLocalDate()
+        
+        return when {
+            eventDate == today && event.startTime.isBefore(now) -> {
+                "The event is today but the time has already passed. Android can only set alarms for future times."
+            }
+            eventDate.isAfter(today.plusDays(1)) -> {
+                "The event is more than one day away. Due to Android API limitations, alarms can only be set for today or tomorrow."
+            }
+            eventDate.isBefore(today) -> {
+                "The event is in the past."
+            }
+            else -> "Unknown limitation"
+        }
     }
 }
