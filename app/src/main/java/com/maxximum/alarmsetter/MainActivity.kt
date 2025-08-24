@@ -990,6 +990,25 @@ fun AlarmSetterScreen(
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
+                    // Test immediate alarm button (simulates boot alarm)
+                    Button(
+                        onClick = {
+                            LogManager.i("MainActivity", "Testing immediate boot alarm logic")
+                            BootReceiver.testImmediateAlarm(context)
+                            Toast.makeText(
+                                context,
+                                "Immediate boot alarm logic tested",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF607D8B))
+                    ) {
+                        Text("Test Boot Immediate Alarm")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
                     // Test run daily worker button
                     Button(
                         onClick = {
