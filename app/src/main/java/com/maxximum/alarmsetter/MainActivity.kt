@@ -1,6 +1,7 @@
 package com.maxximum.alarmsetter
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.icu.util.Calendar
@@ -9,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -99,6 +101,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Initialize logging
+        LogManager.i("MainActivity", "App started")
         
         // Request overlay permission on first launch if not granted
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
@@ -220,7 +225,9 @@ fun AlarmSetterScreen(
     var isDailyWorkerEnabled by remember { mutableStateOf(settingsHelper.isDailyWorkerEnabled()) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showAlarmLimitationDialog by remember { mutableStateOf(false) }
+    var showLogsDialog by remember { mutableStateOf(false) }
     var alarmLimitationMessage by remember { mutableStateOf("") }
+    var logsRefreshTrigger by remember { mutableStateOf(0) } // Add this to trigger log refresh
     var timePickerState by remember { 
         mutableStateOf(TimePickerState(
             initialHour = dailyRunTime.hour,
@@ -229,22 +236,41 @@ fun AlarmSetterScreen(
         ))
     }
     
-    // Check permissions status periodically
+    // Check permissions status periodically (but less frequently and with less logging)
     LaunchedEffect(Unit) {
+        // Initial load of calendar data if permission is already granted
+        if (hasCalendarPermission && calendars.isEmpty()) {
+            LogManager.i("MainActivity", "Initial calendar data load")
+            calendars = calendarHelper.getSystemCalendars()
+            
+            // Restore previously selected calendar
+            val savedCalendarId = calendarHelper.getSelectedCalendarId()
+            if (savedCalendarId != -1L && selectedCalendar == null) {
+                selectedCalendar = calendars.find { it.id == savedCalendarId }
+            }
+            
+            // Load upcoming events if calendar is selected
+            selectedCalendar?.let { calendar ->
+                upcomingEvents = calendarHelper.getUpcomingEvents(calendar.id)
+            }
+        }
+        
         while (true) {
-            kotlinx.coroutines.delay(1000) // Check every second
-            hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Check permissions every 3 seconds to reduce overhead
+            kotlinx.coroutines.delay(3000) 
+            
+            val newOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 Settings.canDrawOverlays(context)
             } else {
                 true
             }
             
-            hasCalendarPermission = ContextCompat.checkSelfPermission(
+            val newCalendarPermission = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.READ_CALENDAR
             ) == PackageManager.PERMISSION_GRANTED
             
-            hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val newNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.POST_NOTIFICATIONS
@@ -253,20 +279,37 @@ fun AlarmSetterScreen(
                 true
             }
             
-            // Load calendars if we have permission
-            if (hasCalendarPermission) {
-                calendars = calendarHelper.getSystemCalendars()
+            // Only update if permissions actually changed
+            if (hasOverlayPermission != newOverlayPermission) {
+                hasOverlayPermission = newOverlayPermission
+                LogManager.d("MainActivity", "Overlay permission changed: $newOverlayPermission")
+            }
+            
+            if (hasCalendarPermission != newCalendarPermission) {
+                hasCalendarPermission = newCalendarPermission
+                LogManager.d("MainActivity", "Calendar permission changed: $newCalendarPermission")
                 
-                // Restore previously selected calendar
-                val savedCalendarId = calendarHelper.getSelectedCalendarId()
-                if (savedCalendarId != -1L && selectedCalendar == null) {
-                    selectedCalendar = calendars.find { it.id == savedCalendarId }
+                // Only reload calendar data if calendar permission was just granted
+                if (newCalendarPermission && calendars.isEmpty()) {
+                    LogManager.i("MainActivity", "Calendar permission granted, loading calendar data")
+                    calendars = calendarHelper.getSystemCalendars()
+                    
+                    // Restore previously selected calendar
+                    val savedCalendarId = calendarHelper.getSelectedCalendarId()
+                    if (savedCalendarId != -1L && selectedCalendar == null) {
+                        selectedCalendar = calendars.find { it.id == savedCalendarId }
+                    }
+                    
+                    // Load upcoming events if calendar is selected
+                    selectedCalendar?.let { calendar ->
+                        upcomingEvents = calendarHelper.getUpcomingEvents(calendar.id)
+                    }
                 }
-                
-                // Load upcoming events if calendar is selected
-                selectedCalendar?.let { calendar ->
-                    upcomingEvents = calendarHelper.getUpcomingEvents(calendar.id)
-                }
+            }
+            
+            if (hasNotificationPermission != newNotificationPermission) {
+                hasNotificationPermission = newNotificationPermission
+                LogManager.d("MainActivity", "Notification permission changed: $newNotificationPermission")
             }
         }
     }
@@ -392,6 +435,7 @@ fun AlarmSetterScreen(
                                     calendarHelper.saveSelectedCalendar(calendar)
                                     isDropdownExpanded = false
                                     upcomingEvents = calendarHelper.getUpcomingEvents(calendar.id)
+                                    LogManager.i("MainActivity", "Calendar selected: ${calendar.displayName} (ID: ${calendar.id})")
                                     Toast.makeText(
                                         context,
                                         "Selected: ${calendar.displayName}",
@@ -641,12 +685,14 @@ fun AlarmSetterScreen(
                                             workRequest
                                         )
                                         
+                                        LogManager.i("MainActivity", "Daily run time updated and rescheduled to ${dailyRunTime.format(DateTimeFormatter.ofPattern("HH:mm"))}")
                                         Toast.makeText(
                                             context,
                                             "Daily alarm schedule updated to ${dailyRunTime.format(DateTimeFormatter.ofPattern("HH:mm"))}",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     } else {
+                                        LogManager.i("MainActivity", "Daily run time updated to ${dailyRunTime.format(DateTimeFormatter.ofPattern("HH:mm"))} (worker disabled)")
                                         Toast.makeText(
                                             context,
                                             "Daily run time updated to ${dailyRunTime.format(DateTimeFormatter.ofPattern("HH:mm"))}",
@@ -703,6 +749,92 @@ fun AlarmSetterScreen(
                     )
                 }
                 
+                // Logs Dialog
+                if (showLogsDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showLogsDialog = false },
+                        title = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "App Logs (${LogManager.getLogsCount()})",
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
+                                TextButton(
+                                    onClick = {
+                                        LogManager.clearLogs()
+                                        logsRefreshTrigger++ // Force refresh
+                                        Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Clear")
+                                }
+                            }
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(400.dp)
+                            ) {
+                                // Use the trigger to force recomposition when logs change
+                                val logsText = remember(logsRefreshTrigger) { LogManager.getLogsAsString() }
+                                if (logsText.isNotEmpty()) {
+                                    val scrollState = rememberScrollState()
+                                    
+                                    // Auto-scroll to bottom when dialog opens
+                                    LaunchedEffect(logsText) {
+                                        scrollState.animateScrollTo(scrollState.maxValue)
+                                    }
+                                    
+                                    Text(
+                                        text = logsText,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            lineHeight = 18.sp
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(scrollState)
+                                            .padding(12.dp),
+                                        fontSize = 12.sp
+                                    )
+                                } else {
+                                    Text(
+                                        text = "No logs available",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { showLogsDialog = false }
+                            ) {
+                                Text("Close")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    // Copy logs to clipboard functionality
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("App Logs", LogManager.getLogsAsString())
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Copy")
+                            }
+                        }
+                    )
+                }
+                
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Daily worker enabled toggle
@@ -723,6 +855,8 @@ fun AlarmSetterScreen(
                             isDailyWorkerEnabled = enabled
                             settingsHelper.setDailyWorkerEnabled(enabled)
                             
+                            LogManager.i("MainActivity", "Daily worker ${if (enabled) "enabled" else "disabled"} by user")
+                            
                             if (enabled) {
                                 // Schedule periodic work
                                 val workRequest = PeriodicWorkRequestBuilder<AlarmWorker>(24, TimeUnit.HOURS)
@@ -734,9 +868,11 @@ fun AlarmSetterScreen(
                                     ExistingPeriodicWorkPolicy.REPLACE,
                                     workRequest
                                 )
+                                LogManager.i("MainActivity", "Daily worker scheduled for ${dailyRunTime.format(DateTimeFormatter.ofPattern("HH:mm"))}")
                             } else {
                                 // Cancel periodic work
                                 WorkManager.getInstance(context).cancelUniqueWork("daily_alarm_work")
+                                LogManager.i("MainActivity", "Daily worker cancelled")
                             }
                             
                             Toast.makeText(
@@ -752,10 +888,28 @@ fun AlarmSetterScreen(
                 
                 // Action Buttons
                 selectedCalendar?.let { calendar ->
+                    
+                    // Show logs button
+                    Button(
+                        onClick = {
+                            showLogsDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0))
+                    ) {
+                        Text("Show Logs (${LogManager.getLogsCount()})")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
                     Button(
                         onClick = {
                             val nextEvent = calendarHelper.getAbsoluteNextEvent(calendar.id)
                             if (nextEvent != null) {
+                                // Log validation details for debugging
+                                val validationInfo = calendarHelper.validateAlarmEligibility(calendar.id)
+                                LogManager.d("MainActivity", "Manual alarm validation:\n$validationInfo")
+                                
                                 // Check if the event is within Android AlarmClock API limitations
                                 if (!calendarHelper.isEventWithinAlarmApiLimitation(nextEvent)) {
                                     // Show limitation dialog
@@ -779,10 +933,12 @@ fun AlarmSetterScreen(
                                 try {
                                     context.startActivity(intent)
                                     
-                                    // Send notification about the alarm being set
+                                    // Log the manual alarm setting
                                     val alarmTimeString = alarmDateTime.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm"))
                                     val eventTimeString = nextEvent.startTime.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm"))
+                                    LogManager.i("MainActivity", "Manual alarm '$alarmLabel' set for $alarmTimeString (${wakeUpMinutesBefore}min before ${nextEvent.title} at $eventTimeString)")
                                     
+                                    // Send notification about the alarm being set
                                     NotificationHelper.sendAlarmNotification(
                                         context,
                                         "Alarm Set Successfully",
@@ -796,6 +952,7 @@ fun AlarmSetterScreen(
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
+                                    LogManager.e("MainActivity", "Error setting manual alarm: ${e.message}", e)
                                     Toast.makeText(context, "Error setting alarm: ${e.message}", Toast.LENGTH_LONG).show()
                                 }
                             } else {
@@ -810,6 +967,45 @@ fun AlarmSetterScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                     ) {
                         Text("Set Alarm for Next Event")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Test boot receiver button
+                    Button(
+                        onClick = {
+                            LogManager.i("MainActivity", "Testing BootReceiver logic manually")
+                            BootReceiver.testBootLogic(context)
+                            Toast.makeText(
+                                context,
+                                "Boot receiver logic tested",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E9E9E))
+                    ) {
+                        Text("Test Boot Receiver")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Test run daily worker button
+                    Button(
+                        onClick = {
+                            LogManager.i("MainActivity", "Manual alarm worker triggered by user")
+                            val workRequest = OneTimeWorkRequestBuilder<AlarmWorker>().build()
+                            WorkManager.getInstance(context).enqueue(workRequest)
+                            Toast.makeText(
+                                context,
+                                "Manual alarm worker triggered",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
+                    ) {
+                        Text("Test Run Daily Worker")
                     }
                 }
                 

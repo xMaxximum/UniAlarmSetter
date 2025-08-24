@@ -28,28 +28,28 @@ class AlarmWorker(
 
     override suspend fun doWork(): Result {
         return try {
-            Log.d("AlarmWorker", "Daily background worker started")
+            LogManager.d("AlarmWorker", "Daily background worker started")
             
             val settingsHelper = SettingsHelper(applicationContext)
             val calendarHelper = CalendarHelper(applicationContext)
             
             // Check if daily worker is enabled
             if (!settingsHelper.isDailyWorkerEnabled()) {
-                Log.d("AlarmWorker", "Daily worker is disabled")
+                LogManager.d("AlarmWorker", "Daily worker is disabled")
                 return Result.success()
             }
             
             // Check if we have required permissions
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && 
                 !Settings.canDrawOverlays(applicationContext)) {
-                Log.e("AlarmWorker", "SYSTEM_ALERT_WINDOW permission not granted")
+                LogManager.e("AlarmWorker", "SYSTEM_ALERT_WINDOW permission not granted")
                 sendNotification("Permission Error", "Overlay permission required for background alarms")
                 return Result.failure()
             }
             
             if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.READ_CALENDAR) 
                 != PackageManager.PERMISSION_GRANTED) {
-                Log.e("AlarmWorker", "Calendar permission not granted")
+                LogManager.e("AlarmWorker", "Calendar permission not granted")
                 sendNotification("Permission Error", "Calendar permission required")
                 return Result.failure()
             }
@@ -57,7 +57,7 @@ class AlarmWorker(
             // Get selected calendar
             val selectedCalendarId = calendarHelper.getSelectedCalendarId()
             if (selectedCalendarId == -1L) {
-                Log.e("AlarmWorker", "No calendar selected")
+                LogManager.e("AlarmWorker", "No calendar selected")
                 sendNotification("Configuration Error", "No calendar selected in app")
                 return Result.failure()
             }
@@ -65,17 +65,21 @@ class AlarmWorker(
             // Get next event (using getAbsoluteNextEvent)
             val nextEvent = calendarHelper.getAbsoluteNextEvent(selectedCalendarId)
             if (nextEvent == null) {
-                Log.d("AlarmWorker", "No upcoming events found")
+                LogManager.d("AlarmWorker", "No upcoming events found")
                 sendNotification("No Events", "No upcoming events found")
                 return Result.success()
             }
+            
+            // Validate alarm eligibility and log detailed information
+            val validationInfo = calendarHelper.validateAlarmEligibility(selectedCalendarId)
+            LogManager.d("AlarmWorker", "Alarm validation:\n$validationInfo")
             
             // Check if the event is within Android AlarmClock API limitations
             // Android can only set alarms for today (if time hasn't passed) or tomorrow
             // This ensures the background worker follows the same limitations as manual setting
             if (!calendarHelper.isEventWithinAlarmApiLimitation(nextEvent)) {
                 val reason = calendarHelper.getAlarmLimitationReason(nextEvent)
-                Log.d("AlarmWorker", "Event is outside alarm API limitation: $reason")
+                LogManager.d("AlarmWorker", "Event is outside alarm API limitation: $reason")
                 sendNotification(
                     "Cannot Set Alarm", 
                     "Next event cannot be set as alarm: $reason\n\nAndroid only allows setting alarms for today or tomorrow."
@@ -104,7 +108,7 @@ class AlarmWorker(
             val alarmTimeString = alarmDateTime.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm"))
             val eventTimeString = nextEvent.startTime.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm"))
             
-            Log.d("AlarmWorker", "Background alarm '$alarmLabel' set for $alarmTimeString (${wakeUpMinutes}min before ${nextEvent.title})")
+            LogManager.d("AlarmWorker", "Background alarm '$alarmLabel' set for $alarmTimeString (${wakeUpMinutes}min before ${nextEvent.title})")
             
             // Send success notification
             sendNotification(
@@ -114,7 +118,7 @@ class AlarmWorker(
             
             Result.success()
         } catch (e: Exception) {
-            Log.e("AlarmWorker", "Error in daily alarm worker: ${e.message}", e)
+            LogManager.e("AlarmWorker", "Error in daily alarm worker: ${e.message}", e)
             sendNotification("Error", "Failed to set daily alarm: ${e.message}")
             Result.failure()
         }
